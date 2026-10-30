@@ -1428,7 +1428,9 @@ ipcMain.handle('get-settings', () => {
 });
 
 ipcMain.handle('save-settings', (_event, settings) => {
-  const success = saveSettings(settings);
+  // Preserve the automatically detected storefront country when saving UI settings.
+  const mergedSettings = { ...loadSettings(), ...(settings || {}) };
+  const success = saveSettings(mergedSettings);
   return { success };
 });
 
