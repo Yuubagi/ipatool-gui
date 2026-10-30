@@ -47,10 +47,12 @@ app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('no-sandbox');
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const IPATOOL_VERSION = '2.3.1';
-const IPATOOL_URL = `https://github.com/mehmetakifsimsek/ipatool/releases/download/v${IPATOOL_VERSION}/ipatool.exe`;
+const IPATOOL_VERSION = '2.7.0'; // Fallback only; latest is read from official releases.
+const IPATOOL_REPO = 'majd/ipatool';
+const GUI_REPO = 'Yuubagi/ipatool-gui';
 const KEYCHAIN_PASSPHRASE = 'ipatool';
-const DEFAULT_TIMEOUT = 30000;   // 30 seconds
+const DEFAULT_TIMEOUT = 30000;   // General CLI commands
+const AUTH_TIMEOUT = 300000;      // Apple sign-in and 2FA may take several minutes
 const DOWNLOAD_TIMEOUT = 300000; // 5 minutes
 
 // ── Paths ──────────────────────────────────────────────────────────────────────
@@ -337,9 +339,9 @@ function getLocalIpatoolVersion() {
       }
       const match = stdout.match(/version\s+([^\s\r\n]+)/);
       if (match && match[1]) {
-        let ver = match[1].trim();
+        let ver = match[1].trim().replace(/^v/i, '');
         if (ver.toLowerCase() === 'dev' || ver.toLowerCase() === 'vdev') {
-          ver = '2.3.0';
+          ver = 'dev';
         }
         resolve('v' + ver);
       } else {
@@ -349,106 +351,242 @@ function getLocalIpatoolVersion() {
   });
 }
 
-function downloadBinary(event, version) {
-  return new Promise((resolve) => {
-    const sendLog = (msg) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('download-log', msg);
-      }
-    };
+// Official majd/ipatool release downloader (Yuubagi patch)
+function getGitHubJson(apiPath) {
+  return new Promise((resolve, reject) => {
+    const request = https.get({
+      hostname: 'api.github.com',
+      path: apiPath,
+      headers: {
+        'User-Agent': 'Yuubagi-ipatool-gui',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        let json;
+        try {
+          json = JSON.parse(body);
+        } catch (_) {
+          reject(new Error('GitHub API returned invalid JSON (HTTP ' + res.statusCode + ')'));
+          return;
+        }
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(json.message || ('GitHub API HTTP ' + res.statusCode)));
+          return;
+        }
+        resolve(json);
+      });
+    });
+    request.setTimeout(20000, () => request.destroy(new Error('GitHub API request timed out')));
+    request.on('error', reject);
+  });
+}
 
-    const targetVersion = version || IPATOOL_VERSION;
-    const downloadUrl = `https://github.com/mehmetakifsimsek/ipatool/releases/download/v${targetVersion}/ipatool.exe`;
+function downloadReleaseAssetToFile(url, filePath, sendLog) {
+  return new Promise((resolve, reject) => {
+    httpsGetFollowRedirects(url, (err, res) => {
+      if (err) return reject(err);
+      if (!res || res.statusCode !== 200) {
+        const status = res ? res.statusCode : 'no response';
+        if (res) res.resume();
+        return reject(new Error('Release asset download failed: HTTP ' + status));
+      }
+
+      const totalBytes = Number(res.headers['content-length'] || 0);
+      let downloadedBytes = 0;
+      let lastProgress = -1;
+      const fileStream = fs.createWriteStream(filePath);
+      res.on('data', (chunk) => {
+        downloadedBytes += chunk.length;
+        if (totalBytes > 0) {
+          const percentage = Math.floor((downloadedBytes / totalBytes) * 100);
+          if (percentage !== lastProgress && percentage % 10 === 0) {
+            lastProgress = percentage;
+            sendLog('Download progress: ' + percentage + '% (' +
+              (downloadedBytes / 1048576).toFixed(1) + ' MB / ' +
+              (totalBytes / 1048576).toFixed(1) + ' MB)');
+          }
+        }
+      });
+      res.on('error', (streamError) => fileStream.destroy(streamError));
+      fileStream.on('error', reject);
+      fileStream.on('finish', () => fileStream.close((closeError) => closeError ? reject(closeError) : resolve()));
+      res.pipe(fileStream);
+    });
+  });
+}
+
+function runTarExtract(archivePath, destination) {
+  return new Promise((resolve, reject) => {
+    // Windows 10/11 ships tar.exe; the official ipatool release is a tar.gz archive.
+    execFile('tar', ['-xzf', archivePath, '-C', destination], { windowsHide: true, timeout: 120000 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error('Could not extract the official ipatool archive: ' + (stderr || error.message).trim()));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function readIpatoolVersion(exePath) {
+  return new Promise((resolve, reject) => {
+    execFile(exePath, ['--version'], { windowsHide: true, timeout: 10000 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error('Downloaded ipatool.exe could not run: ' + (stderr || error.message).trim()));
+        return;
+      }
+      const output = ((stdout || '') + '\n' + (stderr || '')).trim();
+      const match = output.match(/(?:version\s*)?v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/i);
+      if (!match) {
+        reject(new Error('Could not determine downloaded ipatool version. Output: ' + (output || '(empty)')));
+        return;
+      }
+      resolve(match[1]);
+    });
+  });
+}
+
+async function downloadBinary(event, version) {
+  const sendLog = (msg) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('download-log', msg);
+    }
+  };
+
+  let archivePath = null;
+  let checksumPath = null;
+  let extractDir = null;
+  let stagedExePath = null;
+  let backupExePath = null;
+  try {
+    const cleanVersion = version ? String(version).replace(/^v/i, '').trim() : '';
+    const releasePath = cleanVersion
+      ? '/repos/' + IPATOOL_REPO + '/releases/tags/v' + encodeURIComponent(cleanVersion)
+      : '/repos/' + IPATOOL_REPO + '/releases/latest';
+
+    sendLog('Checking official release: ' + IPATOOL_REPO);
+    const release = await getGitHubJson(releasePath);
+    const releaseTag = String(release.tag_name || '').trim();
+    const targetVersion = releaseTag.replace(/^v/i, '');
+    if (!targetVersion || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(targetVersion)) {
+      throw new Error('The official GitHub release has an invalid tag: ' + (releaseTag || '(missing)'));
+    }
+
+    let windowsArch;
+    if (process.arch === 'x64') windowsArch = 'amd64';
+    else if (process.arch === 'arm64') windowsArch = 'arm64';
+    else throw new Error('Unsupported Windows architecture: ' + process.arch + '. Supported architectures are amd64 and arm64.');
+
+    const assetName = 'ipatool-' + targetVersion + '-windows-' + windowsArch + '.tar.gz';
+    const asset = Array.isArray(release.assets) ? release.assets.find((item) => item.name === assetName) : null;
+    if (!asset || !asset.browser_download_url) {
+      const available = Array.isArray(release.assets)
+        ? release.assets.map((item) => item.name).filter((name) => /windows.*(tar\.gz|zip)/i.test(name)).join(', ')
+        : 'no release assets were listed';
+      throw new Error('Official Windows asset not found: ' + assetName + '. Available Windows assets: ' + (available || 'none'));
+    }
 
     const resourcesDir = app.isPackaged ? process.resourcesPath : __dirname;
     const resourcesBinDir = path.join(resourcesDir, 'bin');
     const targetExePath = path.join(resourcesBinDir, 'ipatool.exe');
-    const binDir = path.join(app.getPath('userData'), 'bin');
+    const workingDir = path.join(app.getPath('userData'), 'bin');
+    fs.mkdirSync(resourcesBinDir, { recursive: true });
+    fs.mkdirSync(workingDir, { recursive: true });
 
-    sendLog(`Target binary path: ${targetExePath}`);
-    sendLog(`Target version: ${targetVersion}`);
-    sendLog(`Creating binary directory: ${resourcesBinDir}`);
+    archivePath = path.join(workingDir, assetName + '.download');
+    extractDir = path.join(workingDir, 'extract-' + targetVersion + '-' + Date.now());
+    stagedExePath = path.join(resourcesBinDir, 'ipatool-' + targetVersion + '-staged.exe');
+    fs.mkdirSync(extractDir, { recursive: true });
 
-    try {
-      fs.mkdirSync(resourcesBinDir, { recursive: true });
-      fs.mkdirSync(binDir, { recursive: true });
-    } catch (err) {
-      sendLog(`Error preparing directories: ${err.message}`);
-      resolve({ success: false, error: err.message });
-      return;
+    sendLog('Official release: ' + releaseTag);
+    sendLog('Asset: ' + assetName);
+    sendLog('URL: ' + asset.browser_download_url);
+    await downloadReleaseAssetToFile(asset.browser_download_url, archivePath, sendLog);
+
+    let expectedDigest = '';
+    if (asset.digest && /^sha256:/i.test(asset.digest)) {
+      expectedDigest = asset.digest.split(':').slice(1).join(':').toLowerCase();
+    } else {
+      const checksumAsset = Array.isArray(release.assets)
+        ? release.assets.find((item) => item.name === assetName + '.sha256sum')
+        : null;
+      if (checksumAsset && checksumAsset.browser_download_url) {
+        checksumPath = path.join(workingDir, assetName + '.sha256sum');
+        await downloadReleaseAssetToFile(checksumAsset.browser_download_url, checksumPath, sendLog);
+        const checksumText = fs.readFileSync(checksumPath, 'utf8');
+        const checksumMatch = checksumText.match(/\b([a-f0-9]{64})\b/i);
+        if (!checksumMatch) throw new Error('The official checksum file for ' + assetName + ' is malformed.');
+        expectedDigest = checksumMatch[1].toLowerCase();
+      }
     }
 
-    const tempExePath = path.join(binDir, `ipatool-${targetVersion}-temp.exe`);
-
-    sendLog(`Downloading ipatool.exe v${targetVersion} into temp file: ${tempExePath}`);
-    sendLog(`URL: ${downloadUrl}`);
-
-    httpsGetFollowRedirects(downloadUrl, (err, res) => {
-      if (err) {
-        sendLog(`Download error: ${err.message}`);
-        resolve({ success: false, error: err.message });
-        return;
+    if (expectedDigest) {
+      const crypto = require('crypto');
+      const actualDigest = crypto.createHash('sha256').update(fs.readFileSync(archivePath)).digest('hex');
+      if (actualDigest !== expectedDigest) {
+        throw new Error('SHA-256 mismatch for ' + assetName + '. The old binary was not changed.');
       }
+      sendLog('Archive SHA-256 verified.');
+    } else {
+      throw new Error('The official release did not provide a SHA-256 digest; refusing to replace the existing binary.');
+    }
 
-      if (res.statusCode !== 200) {
-        sendLog(`HTTP error: ${res.statusCode}`);
-        resolve({ success: false, error: `HTTP ${res.statusCode}` });
-        return;
-      }
+    sendLog('Extracting official Windows archive...');
+    await runTarExtract(archivePath, extractDir);
+    const extractedExe = findBinaryRecursive(extractDir, 'ipatool.exe');
+    if (!extractedExe) throw new Error('ipatool.exe was not found inside the official release archive.');
 
-      const totalBytes = parseInt(res.headers['content-length'], 10) || 0;
-      let downloadedBytes = 0;
-      let lastProgress = -1;
+    const extractedVersion = await readIpatoolVersion(extractedExe);
+    if (extractedVersion !== targetVersion) {
+      throw new Error('Version verification failed: release is ' + targetVersion +
+        ', executable reports ' + extractedVersion + '. The old binary was not changed.');
+    }
+    sendLog('Executable verified: ipatool v' + extractedVersion);
 
-      const fileStream = fs.createWriteStream(tempExePath);
+    fs.copyFileSync(extractedExe, stagedExePath);
+    await killIpatoolProcessForcefully();
 
-      res.on('data', (chunk) => {
-        downloadedBytes += chunk.length;
-        if (totalBytes > 0) {
-          const progress = Math.floor((downloadedBytes / totalBytes) * 100);
-          if (progress !== lastProgress && progress % 10 === 0) {
-            lastProgress = progress;
-            sendLog(`Progress: ${progress}% (${(downloadedBytes / 1024 / 1024).toFixed(1)} MB / ${(totalBytes / 1024 / 1024).toFixed(1)} MB)`);
-          }
-        }
-      });
-
-      res.pipe(fileStream);
-
-      fileStream.on('finish', async () => {
-        fileStream.close();
-        sendLog('Download complete. Overwriting old binary...');
-
-        // Forcefully kill any running ipatool processes on the system to unlock the files
-        sendLog('Stopping any active ipatool processes to unlock file handles...');
-        await killIpatoolProcessForcefully();
-
-        // Overwrite old binary
+    if (fs.existsSync(targetExePath)) {
+      backupExePath = targetExePath + '.backup-' + Date.now();
+      fs.renameSync(targetExePath, backupExePath);
+    }
+    try {
+      fs.renameSync(stagedExePath, targetExePath);
+      stagedExePath = null;
+    } catch (replaceError) {
+      if (backupExePath && fs.existsSync(backupExePath) && !fs.existsSync(targetExePath)) {
         try {
-          if (fs.existsSync(targetExePath)) {
-            fs.unlinkSync(targetExePath);
-            sendLog(`Deleted old binary at: ${targetExePath}`);
-          }
-          fs.copyFileSync(tempExePath, targetExePath);
-          fs.unlinkSync(tempExePath);
+          fs.renameSync(backupExePath, targetExePath);
+          backupExePath = null;
+        } catch (_) {}
+      }
+      throw replaceError;
+    }
 
-          saveInstalledCliVersion(targetVersion);
-          resolve({ success: true });
-        } catch (copyErr) {
-          sendLog(`Error copying binary: ${copyErr.message}`);
-          try {
-            if (fs.existsSync(tempExePath)) fs.unlinkSync(tempExePath);
-          } catch (_) {}
-          resolve({ success: false, error: copyErr.message });
-        }
-      });
+    if (backupExePath && fs.existsSync(backupExePath)) {
+      try { fs.unlinkSync(backupExePath); backupExePath = null; }
+      catch (_) { sendLog('Warning: old binary backup was left at ' + backupExePath); }
+    }
 
-      fileStream.on('error', (writeErr) => {
-        sendLog(`File write error: ${writeErr.message}`);
-        resolve({ success: false, error: writeErr.message });
-      });
-    });
-  });
+    saveInstalledCliVersion(targetVersion);
+    sendLog('Official ipatool v' + targetVersion + ' installed successfully.');
+    return { success: true, version: targetVersion };
+  } catch (error) {
+    sendLog('Official ipatool update failed: ' + error.message);
+    return { success: false, error: error.message };
+  } finally {
+    for (const tempPath of [archivePath, checksumPath, extractDir, stagedExePath]) {
+      if (!tempPath) continue;
+      try {
+        if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { recursive: true, force: true }); }
+      catch (_) {}
+    }
+  }
 }
 
 function findBinaryRecursive(dir, filename) {
@@ -650,10 +788,10 @@ function authLogin(email, password) {
         resolve({
           success: false,
           output: stdout + stderr,
-          error: 'Login timed out after 30 seconds',
+          error: 'Login timed out after 5 minutes',
         });
       }
-    }, DEFAULT_TIMEOUT);
+    }, AUTH_TIMEOUT);
 
     proc.stdout.on('data', (data) => {
       stdout += data.toString();
@@ -750,7 +888,7 @@ function auth2FA(code) {
           error: '2FA verification timed out',
         });
       }
-    }, DEFAULT_TIMEOUT);
+    }, AUTH_TIMEOUT);
 
     // Collect any further output after writing the code
     const onStdout = (data) => {
@@ -1170,23 +1308,51 @@ async function enrichSearchOutput(output, country = '') {
   return enrichedLines.join('\n');
 }
 
-// Search
+// Search. The official ipatool CLI no longer accepts --country;
+// use Apple's public Search API for an explicitly selected storefront.
 ipcMain.handle('search', async (_event, { query, limit, country }) => {
   try {
-    const args = ['search', query, '--limit', String(limit || 5)];
+    const safeLimit = Math.max(1, Math.min(200, Number.parseInt(limit, 10) || 5));
     if (country) {
-      args.push('--country', country.toLowerCase());
+      const searchUrl = new URL('https://itunes.apple.com/search');
+      searchUrl.searchParams.set('term', String(query || ''));
+      searchUrl.searchParams.set('country', String(country).toLowerCase());
+      searchUrl.searchParams.set('entity', 'software');
+      searchUrl.searchParams.set('limit', String(safeLimit));
+
+      const response = await fetch(searchUrl.toString(), {
+        headers: { 'User-Agent': 'Yuubagi-ipatool-gui' },
+      });
+      if (!response.ok) throw new Error('Apple Search API returned HTTP ' + response.status);
+      const payload = await response.json();
+      const apps = (Array.isArray(payload.results) ? payload.results : [])
+        .filter((item) => item && item.bundleId && item.trackId)
+        .map((item) => ({
+          id: item.trackId,
+          name: item.trackName || item.trackCensoredName || 'Unknown App',
+          trackName: item.trackName || item.trackCensoredName || 'Unknown App',
+          bundleID: item.bundleId,
+          bundleId: item.bundleId,
+          version: item.version || '—',
+          price: typeof item.price === 'number' ? item.price : undefined,
+          formattedPrice: item.formattedPrice || '',
+          artworkURL: item.artworkUrl512 || item.artworkUrl100 || '',
+          artworkUrl: item.artworkUrl512 || item.artworkUrl100 || '',
+          artworkUrl100: item.artworkUrl100 || item.artworkUrl512 || '',
+        }));
+      return { success: true, output: JSON.stringify({ resultCount: apps.length, apps }) };
     }
-    const result = await runIpatool(args);
+
+    // With no region override, ipatool uses the logged-in Apple ID storefront.
+    const result = await runIpatool(['search', String(query || ''), '--limit', String(safeLimit)]);
     if (result && result.success && result.output) {
-      result.output = await enrichSearchOutput(result.output, country);
+      result.output = await enrichSearchOutput(result.output, '');
     }
     return result;
   } catch (err) {
     return { success: false, output: '', error: err.message };
   }
 });
-
 
 // Purchase
 ipcMain.handle('purchase', async (_event, { bundleId }) => {
@@ -1410,37 +1576,26 @@ ipcMain.handle('clean-temp-files', async () => {
 
 
 
-// Fetch latest ipatool version tag from GitHub
-ipcMain.handle('fetch-ipatool-version', () => {
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: '/repos/mehmetakifsimsek/ipatool/releases/latest',
-      headers: { 'User-Agent': 'ipatool-gui' },
+// Fetch the latest CLI version from the official majd/ipatool release.
+ipcMain.handle('fetch-ipatool-version', async () => {
+  try {
+    const release = await getGitHubJson('/repos/' + IPATOOL_REPO + '/releases/latest');
+    return {
+      success: true,
+      tag: release.tag_name || 'unknown',
+      releaseUrl: release.html_url || 'https://github.com/' + IPATOOL_REPO + '/releases',
     };
-    https.get(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          resolve({ success: true, tag: json.tag_name || 'unknown' });
-        } catch (e) {
-          resolve({ success: false, error: 'Failed to parse GitHub response' });
-        }
-      });
-    }).on('error', (err) => {
-      resolve({ success: false, error: err.message });
-    });
-  });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
 
-// Check GUI Updates from mehmetakifsimsek/ipatool-gui repository
+// Check GUI Updates from Yuubagi/ipatool-gui repository
 ipcMain.handle('check-gui-update', () => {
   return new Promise((resolve) => {
     const options = {
       hostname: 'api.github.com',
-      path: '/repos/mehmetakifsimsek/ipatool-gui/releases/latest',
+      path: '/repos/' + GUI_REPO + '/releases/latest',
       headers: { 'User-Agent': 'ipatool-gui' },
     };
     https.get(options, (res) => {
@@ -1482,7 +1637,7 @@ ipcMain.handle('check-gui-update', () => {
             hasUpdate,
             latestVersion: json.tag_name || 'unknown',
             localVersion: 'v' + localVersion,
-            releaseUrl: json.html_url || 'https://github.com/mehmetakifsimsek/ipatool-gui/releases',
+            releaseUrl: json.html_url || ('https://github.com/' + GUI_REPO + '/releases'),
             downloadUrl: downloadUrl
           });
         } catch (e) {

@@ -12,7 +12,6 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "beforePack": "./beforePack.js",
     "appId": "com.ipatool.gui",
     "productName": "IPATool GUI",
     "copyright": "GUI by: https://github.com/mehmetakifsimsek",
@@ -28,8 +27,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "IPATool GUI",
       "language": "1033",
-      "installerLanguages": ["en_US"],
-      "include": "installer.nsh",
+      "installerLanguages": [
+        "en_US"
+      ],
       "artifactName": "IPAToolGUI Setup v${version}.${ext}"
     },
     "files": [

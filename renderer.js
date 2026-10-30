@@ -512,8 +512,8 @@
     checkGuiUpdatesAtStartup();
   }
 
-  let localCliVersion = 'v2.3.0';
-  let latestCliVersion = 'v2.3.0';
+  let localCliVersion = 'Unknown';
+  let latestCliVersion = 'v2.7.0';
 
   async function checkCliUpdates() {
     try {
@@ -526,7 +526,7 @@
       if (remoteRes && remoteRes.success && remoteRes.tag) {
         latestCliVersion = remoteRes.tag;
       } else {
-        latestCliVersion = 'v2.3.0';
+        latestCliVersion = 'v2.7.0';
       }
 
       statusVersion.textContent = localCliVersion;
@@ -917,7 +917,7 @@
       const name = app.name || app.Name || app.trackName || 'Unknown App';
       const bundle = app.bundleID || app.bundleId || app.bundle_id || '—';
       const version = app.version || app.Version || '—';
-      const price = app.price !== undefined ? (app.price === 0 ? 'Free' : `$${app.price}`) : (app.Price || '—');
+      const price = app.formattedPrice || (app.price !== undefined ? (app.price === 0 ? 'Free' : `${app.price}`) : (app.Price || '—'));
       const artworkUrl = app.artworkURL || app.artworkUrl || app.artworkUrl100 || '';
 
       const card = document.createElement('div');

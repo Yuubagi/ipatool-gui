@@ -1,6 +1,8 @@
 # IPATool GUI
 
-A premium, modern desktop interface wrapper for the [ipatool](https://github.com/majd/ipatool) CLI, built with Electron, HTML5, and Vanilla CSS. It provides an elegant, fast, and feature-rich way to search, analyze, and download iOS `.ipa` files directly from the App Store.
+A premium, modern desktop interface wrapper for the official [majd/ipatool](https://github.com/majd/ipatool) CLI, built with Electron, HTML5, and Vanilla CSS. It provides an elegant, fast, and feature-rich way to search, analyze, and download iOS `.ipa` files directly from the App Store.
+
+The GUI checks and downloads the CLI from the official `majd/ipatool` releases. GUI application updates are checked independently from this `Yuubagi/ipatool-gui` repository.
 
 ---
 
@@ -123,7 +125,7 @@ These are crucial App Store rules that will save you time and prevent failures:
 ### Quick Start
 1. **Clone and Install:**
    ```bash
-   git clone https://github.com/mehmetakifsimsek/ipatool-gui.git
+   git clone https://github.com/Yuubagi/ipatool-gui.git
    cd ipatool-gui
    npm install
    ```
