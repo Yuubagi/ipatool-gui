@@ -1380,6 +1380,7 @@ ipcMain.handle('list-versions', async (_event, { bundleId, appId }) => {
     const args = ['list-versions'];
     if (normalizedAppId) args.push('--app-id', String(normalizedAppId));
     else args.push('--bundle-identifier', bundleId);
+    args.push('--platform', 'iphone');
     return await runIpatool(args);
   } catch (err) {
     return { success: false, output: '', error: err.message };
@@ -1393,7 +1394,7 @@ ipcMain.handle('get-version-metadata', async (_event, { bundleId, appId, version
     const args = ['get-version-metadata'];
     if (normalizedAppId) args.push('--app-id', String(normalizedAppId));
     else args.push('--bundle-identifier', bundleId);
-    args.push('--external-version-id', String(versionId));
+    args.push('--platform', 'iphone', '--external-version-id', String(versionId));
     return await runIpatool(args);
   } catch (err) {
     return { success: false, output: '', error: err.message };
