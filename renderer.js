@@ -70,8 +70,6 @@
     'Actions': '操作',
     'Configure application preferences': 'アプリケーションの設定',
     'Default Output Directory': '既定の保存先',
-    'Country Code': '国コード',
-    'Common: US, GB, DE, JP, CN, TR': '例：US、GB、DE、JP、CN、TR',
     'Maximum Concurrent Downloads': '同時ダウンロード数',
     '1 (Single download - Queue sequentially)': '1（順番にダウンロード）',
     '2 Concurrent downloads': '2件を同時にダウンロード',
@@ -2244,7 +2242,6 @@
           $('#input-set-output').value = settings.outputDir;
           $('#input-dl-output').value = settings.outputDir; // pre-fill download page too
         }
-        $('#input-set-country').value = settings.country || '';
         const languageSelect = $('#select-set-language');
         if (languageSelect) languageSelect.value = settings.language || 'auto';
         applyLanguage(settings.language || 'auto');
@@ -2256,17 +2253,6 @@
     } catch {
       // ignore
     }
-  }
-
-  if (typeof api.onSettingsUpdated === 'function') {
-    api.onSettingsUpdated((updatedSettings) => {
-      if (updatedSettings) {
-        const inputSetCountry = $('#input-set-country');
-        if (inputSetCountry) {
-          inputSetCountry.value = updatedSettings.country || '';
-        }
-      }
-    });
   }
 
   $('#select-set-language').addEventListener('change', (event) => {
@@ -2286,7 +2272,6 @@
     try {
       const settings = {
         outputDir: $('#input-set-output').value.trim(),
-        country: $('#input-set-country').value.trim().toUpperCase(),
         language: $('#select-set-language').value || 'auto',
         concurrentDownloads: parseInt($('#select-set-concurrent').value, 10),
       };
