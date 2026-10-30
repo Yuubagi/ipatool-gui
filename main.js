@@ -1209,6 +1209,12 @@ ipcMain.handle('auth-revoke', async () => {
   }
 });
 
+// Normalize IDs because ipatool JSON and Apple's lookup endpoint may use different numeric types.
+function normalizeAppStoreId(value) {
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 // Enrich search output with artwork from public iTunes API
 async function enrichSearchOutput(output, country = '') {
   if (!output) return output;
@@ -1227,9 +1233,8 @@ async function enrichSearchOutput(output, country = '') {
       parsedLines.push({ isJson: true, data: parsed, raw: line });
       if (parsed && Array.isArray(parsed.apps)) {
         for (const app of parsed.apps) {
-          if (app.id) {
-            appIds.push(app.id);
-          }
+          const appId = normalizeAppStoreId(app.id ?? app.trackId ?? app.appId);
+          if (appId) appIds.push(appId);
         }
       }
     } catch (e) {
@@ -1266,9 +1271,9 @@ async function enrichSearchOutput(output, country = '') {
       const data = await res.json();
       if (data && Array.isArray(data.results)) {
         for (const item of data.results) {
-          if (item.trackId && item.artworkUrl100) {
-            artworkMap.set(item.trackId, item.artworkUrl100);
-          }
+          const trackId = normalizeAppStoreId(item.trackId);
+          const artwork = item.artworkUrl512 || item.artworkUrl100;
+          if (trackId && artwork) artworkMap.set(trackId, artwork);
         }
       }
     }
@@ -1281,11 +1286,13 @@ async function enrichSearchOutput(output, country = '') {
       const parsed = line.data;
       if (parsed && Array.isArray(parsed.apps)) {
         for (const app of parsed.apps) {
-          if (app.id && artworkMap.has(app.id)) {
-            const url = artworkMap.get(app.id);
+          const appId = normalizeAppStoreId(app.id ?? app.trackId ?? app.appId);
+          if (appId && artworkMap.has(appId)) {
+            const url = artworkMap.get(appId);
             app.artworkUrl = url;
             app.artworkURL = url;
             app.artworkUrl100 = url;
+            app.artworkUrl512 = url;
           }
         }
       }
@@ -1366,19 +1373,28 @@ ipcMain.handle('download-ipa', async (_event, { taskId, bundleId, appId, appPric
   }
 });
 
-// List versions
-ipcMain.handle('list-versions', async (_event, { bundleId }) => {
+// List versions. Prefer the App Store numeric ID from search results to avoid a second bundle lookup.
+ipcMain.handle('list-versions', async (_event, { bundleId, appId }) => {
   try {
-    return await runIpatool(['list-versions', '--bundle-identifier', bundleId]);
+    const normalizedAppId = normalizeAppStoreId(appId);
+    const args = ['list-versions'];
+    if (normalizedAppId) args.push('--app-id', String(normalizedAppId));
+    else args.push('--bundle-identifier', bundleId);
+    return await runIpatool(args);
   } catch (err) {
     return { success: false, output: '', error: err.message };
   }
 });
 
-// Get version metadata
-ipcMain.handle('get-version-metadata', async (_event, { bundleId, versionId }) => {
+// Get version metadata using the same resolved App Store ID when available.
+ipcMain.handle('get-version-metadata', async (_event, { bundleId, appId, versionId }) => {
   try {
-    return await runIpatool(['get-version-metadata', '--bundle-identifier', bundleId, '--external-version-id', String(versionId)]);
+    const normalizedAppId = normalizeAppStoreId(appId);
+    const args = ['get-version-metadata'];
+    if (normalizedAppId) args.push('--app-id', String(normalizedAppId));
+    else args.push('--bundle-identifier', bundleId);
+    args.push('--external-version-id', String(versionId));
+    return await runIpatool(args);
   } catch (err) {
     return { success: false, output: '', error: err.message };
   }
