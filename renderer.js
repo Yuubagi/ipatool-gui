@@ -347,6 +347,7 @@
   let selectedAppArtworkUrl = '';
   let selectedAppName = '';
   let selectedAppId = null;
+  let selectedAppBundleId = '';
   let selectedAppPrice = null;
   let currentVersionsSessionId = 0;
 
@@ -504,6 +505,26 @@
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  function getSelectedAppIdForBundle(bundleId) {
+    if (!bundleId || !selectedAppBundleId ||
+        selectedAppBundleId.toLowerCase() !== String(bundleId).trim().toLowerCase()) {
+      return null;
+    }
+    const id = Number(selectedAppId);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
+
+  function attachAppIconFallback(img, size = 48) {
+    if (!img) return;
+    img.addEventListener('error', () => {
+      if (!img.isConnected) return;
+      const placeholder = document.createElement('div');
+      placeholder.textContent = '📱';
+      placeholder.style.cssText = `width:${size}px;height:${size}px;flex-shrink:0;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:20px;`;
+      img.replaceWith(placeholder);
+    }, { once: true });
   }
 
   function updateSidebarBadge() {
@@ -1183,6 +1204,7 @@
         </div>
       `;
       searchResults.appendChild(card);
+      attachAppIconFallback(card.querySelector('img'), 48);
     }
 
     // Card action handlers
@@ -1196,6 +1218,7 @@
           selectedAppArtworkUrl = artUrl;
           selectedAppName = appName;
           selectedAppId = Number(btn.dataset.appid) || null;
+          selectedAppBundleId = bundle;
           selectedAppPrice = btn.dataset.appprice === '' ? null : Number(btn.dataset.appprice);
 
           // Check if this app version is already in the download queue
@@ -1268,6 +1291,7 @@
           selectedAppArtworkUrl = artUrl;
           selectedAppName = appName;
           selectedAppId = Number(btn.dataset.appid) || null;
+          selectedAppBundleId = bundle;
           selectedAppPrice = btn.dataset.appprice === '' ? null : Number(btn.dataset.appprice);
 
           showPage('versions');
@@ -1780,6 +1804,7 @@
       }
 
       queueList.appendChild(card);
+      attachAppIconFallback(card.querySelector('img'), 44);
     });
   }
 
@@ -1912,7 +1937,8 @@
     setLoading(btn, true);
 
     try {
-      const result = await api.listVersions({ bundleId });
+      const appId = getSelectedAppIdForBundle(bundleId);
+      const result = await api.listVersions({ bundleId, appId });
       if (result && result.success) {
         const data = tryParseOutput(result.output);
         renderVersions(data);
@@ -2046,7 +2072,7 @@
         const newTask = {
           id: taskId,
           bundleId,
-          appId: selectedAppId,
+          appId: getSelectedAppIdForBundle(bundleId),
           appPrice: selectedAppPrice,
           versionId: versionId || null,
           appName,
@@ -2078,7 +2104,8 @@
 
         try {
           const bundleId = $('#input-ver-bundle').value.trim();
-          const result = await api.getVersionMetadata({ bundleId, versionId: externalId });
+          const appId = getSelectedAppIdForBundle(bundleId);
+          const result = await api.getVersionMetadata({ bundleId, appId, versionId: externalId });
           if (mySessionId !== currentVersionsSessionId) return;
           if (result && result.success) {
             const meta = tryParseOutput(result.output);
