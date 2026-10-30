@@ -731,7 +731,9 @@ function runIpatool(args, options = {}) {
   const cmd = args[0];
   const isReadOnly = cmd === 'search' || cmd === 'list-versions' || cmd === 'get-version-metadata' || (cmd === 'auth' && args[1] === 'info');
 
-  if (isReadOnly) {
+  // Version lookups must use the regular user profile: on Windows, ipatool's
+  // SAP/keychain/cache state can be unavailable from the temporary isolated HOME.
+  if (isReadOnly && !options.sharedProfile) {
     return runIpatoolIsolated(args, options);
   } else {
     const run = async () => {
@@ -1381,7 +1383,7 @@ ipcMain.handle('list-versions', async (_event, { bundleId, appId }) => {
     if (normalizedAppId) args.push('--app-id', String(normalizedAppId));
     else args.push('--bundle-identifier', bundleId);
     args.push('--platform', 'iphone');
-    return await runIpatool(args);
+    return await runIpatool(args, { sharedProfile: true });
   } catch (err) {
     return { success: false, output: '', error: err.message };
   }
@@ -1395,7 +1397,7 @@ ipcMain.handle('get-version-metadata', async (_event, { bundleId, appId, version
     if (normalizedAppId) args.push('--app-id', String(normalizedAppId));
     else args.push('--bundle-identifier', bundleId);
     args.push('--platform', 'iphone', '--external-version-id', String(versionId));
-    return await runIpatool(args);
+    return await runIpatool(args, { sharedProfile: true });
   } catch (err) {
     return { success: false, output: '', error: err.message };
   }
