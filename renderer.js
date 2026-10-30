@@ -7,6 +7,243 @@
 
   const api = window.api;
 
+  /* ── Localization (English / Japanese) ── */
+  const JA_TRANSLATIONS = {
+    'Dashboard': 'ダッシュボード',
+    'Authentication': '認証',
+    'Search': '検索',
+    'Download': 'ダウンロード',
+    'Versions': 'バージョン履歴',
+    'Application Logs': 'アプリケーションログ',
+    'Settings': '設定',
+    'Dark Mode': 'ダークモード',
+    'Light Mode': 'ライトモード',
+    'IPATool Dashboard': 'IPATool ダッシュボード',
+    'Manage and download iOS applications from the App Store': 'App StoreからiOSアプリを検索・ダウンロード',
+    'Binary Status': 'CLIの状態',
+    'Checking…': '確認中…',
+    'ipatool Version': 'ipatool バージョン',
+    'Quick Actions': 'クイック操作',
+    'Search Apps': 'アプリを検索',
+    'Download IPA': 'IPAをダウンロード',
+    'Setting Up IPATool': 'IPAToolをセットアップ中',
+    'Downloading ipatool binary from GitHub…': 'GitHubからipatoolをダウンロード中…',
+    'Terminal': 'ログ',
+    'Continue': '続行',
+    'Sign in with your Apple ID': 'Apple IDでサインイン',
+    'Apple ID (Email)': 'Apple ID（メールアドレス）',
+    'Password': 'パスワード',
+    'Sign In': 'サインイン',
+    'Two-Factor Authentication': '2ファクタ認証',
+    'Enter the verification code sent to your device.': 'デバイスに届いた確認コードを入力してください。',
+    'Verification Code': '確認コード',
+    'Back': '戻る',
+    'Verify': '認証',
+    'Search App Store': 'App Storeを検索',
+    'Find iOS applications by name or keyword': 'アプリ名またはキーワードでiOSアプリを検索',
+    'Search for Apps': 'アプリを検索',
+    'Enter an app name above to search the App Store': '上の欄にアプリ名を入力して検索してください',
+    'Download an IPA file from the App Store': 'App StoreからIPAファイルをダウンロード',
+    'Bundle Identifier': 'バンドルID',
+    'Version ID (Release ID - Optional)': 'バージョンID（リリースID・任意）',
+    'Output Directory': '保存先フォルダー',
+    'Browse': '参照',
+    'Auto-acquire license (purchase)': '無料アプリのライセンスを自動取得',
+    '⬇️ Start Download': '⬇️ ダウンロード開始',
+    'Download Queue': 'ダウンロードキュー',
+    '▶️ Start Queue Download': '▶️ キューを開始',
+    '🧹 Clear Completed': '🧹 完了分を消去',
+    'Downloading...': 'ダウンロード中...',
+    '✖ Cancel Download': '✖ ダウンロードをキャンセル',
+    'Download Progress': 'ダウンロード進捗',
+    '✅ Download complete': '✅ ダウンロード完了',
+    '📂 Open File Location': '📂 保存先を開く',
+    'App Versions': 'アプリのバージョン',
+    'List available versions of an app': 'アプリの配信バージョン一覧を取得',
+    'List Versions': 'バージョン一覧',
+    'Load All Details': 'すべての詳細を読み込む',
+    'No Versions Loaded': 'バージョン情報はありません',
+    'Enter a bundle identifier and click List Versions': 'バンドルIDを入力して「バージョン一覧」を押してください',
+    'Version': 'バージョン',
+    'Release ID (External ID)': 'リリースID（外部ID）',
+    'Release Date': 'リリース日',
+    'Actions': '操作',
+    'Configure application preferences': 'アプリケーションの設定',
+    'Default Output Directory': '既定の保存先',
+    'Country Code': '国コード',
+    'Common: US, GB, DE, JP, CN, TR': '例：US、GB、DE、JP、CN、TR',
+    'Maximum Concurrent Downloads': '同時ダウンロード数',
+    '1 (Single download - Queue sequentially)': '1（順番にダウンロード）',
+    '2 Concurrent downloads': '2件を同時にダウンロード',
+    '3 Concurrent downloads': '3件を同時にダウンロード',
+    'Choose how many files can download at the same time. Others will wait in queue.': '同時にダウンロードするファイル数を指定します。超過分はキューで待機します。',
+    'ipatool Binary Path': 'ipatool実行ファイルの場所',
+    'Re-download': '再ダウンロード',
+    'Account Session': 'アカウントセッション',
+    '🗑️ Reset Login Info / Sign Out': '🗑️ ログイン情報をリセット／サインアウト',
+    'Maintenance': 'メンテナンス',
+    'Interrupted download cleanup (.ipa.tmp files)': '中断したダウンロードの一時ファイルを削除（.ipa.tmp）',
+    '🗑️ Clean Temp Files': '🗑️ 一時ファイルを削除',
+    'IPATool CLI Backend Update': 'ipatool CLIの更新',
+    'Current: Loading... | Latest: Loading...': '現在：読み込み中... | 最新：読み込み中...',
+    '🔄 Update CLI': '🔄 CLIを更新',
+    'GUI Application Update': 'GUIアプリの更新',
+    'Current Version: Loading...': '現在のバージョン：読み込み中...',
+    '🔄 Check for Updates': '🔄 更新を確認',
+    '💾 Save Settings': '💾 設定を保存',
+    'View errors and messages occurred during this session': 'このセッションのエラーとメッセージを表示',
+    '📋 Copy': '📋 コピー',
+    '🗑️ Clear': '🗑️ 消去',
+    'No error logs recorded.': 'エラーログはありません。',
+    'Load More Versions?': 'さらにバージョンを読み込みますか？',
+    '15 versions have been loaded. Do you want to continue loading the next versions?': '15件のバージョンを読み込みました。続けて次の15件を読み込みますか？',
+    'Yes, Continue': 'はい、続ける',
+    'No, Stop': 'いいえ、停止',
+    'Download Paused': 'ダウンロードを一時停止しました',
+    'What would you like to do with this download?': 'このダウンロードをどうしますか？',
+    '▶️ Continue Downloading': '▶️ ダウンロードを再開',
+    '⏸️ Keep Paused': '⏸️ 一時停止を維持',
+    '⏹️ Stop (Cancel & Reset)': '⏹️ 停止（キャンセルしてリセット）',
+    'Installed': 'インストール済み',
+    'Not found': '見つかりません',
+    'Not Installed': '未インストール',
+    'Unknown': '不明',
+    'Signed in': 'サインイン済み',
+    'Not signed in': '未サインイン',
+    'Signed out': 'サインアウトしました',
+    'No Results': '検索結果なし',
+    'Try a different search term': '別のキーワードを試してください',
+    'Unknown App': '不明なアプリ',
+    'Free': '無料',
+    'Add to Queue': 'キューに追加',
+    'Loading...': '読み込み中...',
+    'Load Details': '詳細を取得',
+    'Select': '選択',
+    'Please fill in all fields': 'すべての項目を入力してください',
+    'Enter the verification code': '確認コードを入力してください',
+    '2FA required — check your device': '2ファクタ認証が必要です。デバイスを確認してください',
+    'Signed in successfully!': 'サインインしました',
+    'Authenticated successfully!': '認証に成功しました',
+    'Enter a search term': '検索キーワードを入力してください',
+    'Settings saved!': '設定を保存しました',
+    'No bundle identifier found': 'バンドルIDがありません',
+    'Starting queue download': 'キューのダウンロードを開始します',
+    'Queue paused': 'キューを一時停止しました',
+    'Download queue paused': 'ダウンロードキューを一時停止しました',
+    'Resuming download queue...': 'ダウンロードキューを再開しています...',
+    'Operation failed': '処理に失敗しました',
+    'Unknown error': '不明なエラー',
+    'Your app is up to date!': '最新バージョンです',
+    'Language': '言語',
+    'Automatic (System)': 'システム設定に合わせる',
+    'English': '英語'
+  };
+
+  const ATTRIBUTE_TRANSLATIONS = {
+    'Select a directory…': 'フォルダーを選択…',
+    'Not found': '見つかりません'
+  };
+  const textOriginals = new WeakMap();
+  const attributeOriginals = new WeakMap();
+  let currentLanguage = 'en';
+
+  function resolveLanguage(mode) {
+    if (mode === 'ja' || mode === 'en') return mode;
+    return String(navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+  }
+
+  function translateTextValue(value) {
+    const source = String(value || '');
+    const key = source.trim();
+    if (!key || currentLanguage !== 'ja') return source;
+    let translated = JA_TRANSLATIONS[key];
+
+    if (!translated) {
+      const dynamicRules = [
+        [/^Current: (.+) \| Latest: (.+)$/, '現在：$1 | 最新：$2'],
+        [/^Current Version: (.+)$/, '現在のバージョン：$1'],
+        [/^A new IPATool CLI update \((.+)\) is available!$/, '新しいipatool CLI（$1）が利用できます。'],
+        [/^A new GUI version \((.+)\) is available!$/, '新しいGUIバージョン（$1）が利用できます。'],
+        [/^Starting IPATool CLI update to (.+)\.\.\.$/, 'ipatool CLI $1 への更新を開始しています...'],
+        [/^IPATool CLI successfully updated to (.+)!$/, 'ipatool CLI $1 への更新が完了しました。'],
+        [/^Initializing download for (.+) \((.+)\)\.\.\.$/, '$1（$2）のダウンロードを開始しています...'],
+        [/^Added to queue: (.+)$/, 'キューに追加しました：$1'],
+        [/^Added to download queue: (.+)$/, 'ダウンロードキューに追加しました：$1'],
+        [/^Failed to check binary: (.+)$/, 'CLIの確認に失敗しました：$1'],
+        [/^Search failed: (.+)$/, '検索に失敗しました：$1'],
+        [/^Download failed: (.+)$/, 'ダウンロードに失敗しました：$1']
+      ];
+      for (const rule of dynamicRules) {
+        if (rule[0].test(key)) {
+          translated = key.replace(rule[0], rule[1]);
+          break;
+        }
+      }
+    }
+
+    if (!translated) return source;
+    const leading = source.match(/^\s*/)[0];
+    const trailing = source.match(/\s*$/)[0];
+    return leading + translated + trailing;
+  }
+
+  function translateTextNode(node) {
+    if (!node || node.nodeType !== Node.TEXT_NODE) return;
+    if (!textOriginals.has(node)) textOriginals.set(node, node.nodeValue || '');
+    const original = textOriginals.get(node);
+    const translated = currentLanguage === 'ja' ? translateTextValue(original) : original;
+    if (node.nodeValue !== translated) node.nodeValue = translated;
+  }
+
+  function translateAttributes(element) {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) return;
+    let originals = attributeOriginals.get(element);
+    if (!originals) {
+      originals = {};
+      attributeOriginals.set(element, originals);
+    }
+    for (const name of ['placeholder', 'title', 'aria-label']) {
+      const current = element.getAttribute(name);
+      if (current === null) continue;
+      if (!(name in originals)) originals[name] = current;
+      const original = originals[name];
+      const translated = currentLanguage === 'ja'
+        ? (JA_TRANSLATIONS[original] || ATTRIBUTE_TRANSLATIONS[original] || original)
+        : original;
+      if (current !== translated) element.setAttribute(name, translated);
+    }
+  }
+
+  function translateSubtree(root) {
+    if (!root) return;
+    if (root.nodeType === Node.TEXT_NODE) {
+      translateTextNode(root);
+      return;
+    }
+    if (root.nodeType === Node.ELEMENT_NODE) translateAttributes(root);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) translateTextNode(node);
+    if (root.nodeType === Node.ELEMENT_NODE && root.querySelectorAll) {
+      root.querySelectorAll('input,textarea,button,select,option,label,a').forEach(translateAttributes);
+    }
+  }
+
+  function applyLanguage(mode) {
+    currentLanguage = resolveLanguage(mode || 'auto');
+    document.documentElement.lang = currentLanguage;
+    translateSubtree(document.body);
+  }
+
+  const languageObserver = new MutationObserver((records) => {
+    if (currentLanguage !== 'ja') return;
+    for (const record of records) {
+      if (record.type === 'characterData') translateTextNode(record.target);
+      else if (record.type === 'childList') record.addedNodes.forEach(translateSubtree);
+    }
+  });
+  languageObserver.observe(document.body, { subtree: true, childList: true, characterData: true });
+
   /* ── DOM References ── */
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -109,6 +346,8 @@
   let lastDownloadPath = '';
   let selectedAppArtworkUrl = '';
   let selectedAppName = '';
+  let selectedAppId = null;
+  let selectedAppPrice = null;
   let currentVersionsSessionId = 0;
 
   // Queue State
@@ -575,7 +814,7 @@
     if (!local || !latest) return false;
     const cleanLocal = local.replace('v', '').trim();
     const cleanLatest = latest.replace('v', '').trim();
-    if (cleanLocal.toLowerCase() === 'dev') return false; 
+    if (['dev', 'unknown', 'not installed'].includes(cleanLocal.toLowerCase())) return true;
     if (cleanLocal === cleanLatest) return false;
 
     const localParts = cleanLocal.split('.').map(Number);
@@ -919,6 +1158,10 @@
       const version = app.version || app.Version || '—';
       const price = app.formattedPrice || (app.price !== undefined ? (app.price === 0 ? 'Free' : `${app.price}`) : (app.Price || '—'));
       const artworkUrl = app.artworkURL || app.artworkUrl || app.artworkUrl100 || '';
+      const appId = Number(app.id ?? app.trackId ?? app.appId) || null;
+      const rawPrice = app.price;
+      const numericPrice = rawPrice === undefined || rawPrice === null || rawPrice === '' ? NaN : Number(rawPrice);
+      const appPrice = Number.isFinite(numericPrice) ? numericPrice : (String(app.formattedPrice || '').toLowerCase() === 'free' ? 0 : null);
 
       const card = document.createElement('div');
       card.className = 'app-card';
@@ -935,8 +1178,8 @@
           <span class="app-card__tag"><strong>Price:</strong> ${escapeHtml(String(price))}</span>
         </div>
         <div class="app-card__actions">
-          <button class="btn btn--primary btn--sm btn-card-dl" data-bundle="${escapeHtml(bundle)}" data-artwork="${escapeHtml(artworkUrl)}" data-appname="${escapeHtml(name)}">📥 Add to Queue</button>
-          <button class="btn btn--outline btn--sm btn-card-ver" data-bundle="${escapeHtml(bundle)}" data-artwork="${escapeHtml(artworkUrl)}" data-appname="${escapeHtml(name)}">📋 Versions</button>
+          <button class="btn btn--primary btn--sm btn-card-dl" data-bundle="${escapeHtml(bundle)}" data-appid="${appId || ''}" data-appprice="${appPrice === null ? '' : appPrice}" data-artwork="${escapeHtml(artworkUrl)}" data-appname="${escapeHtml(name)}">📥 Add to Queue</button>
+          <button class="btn btn--outline btn--sm btn-card-ver" data-bundle="${escapeHtml(bundle)}" data-appid="${appId || ''}" data-appprice="${appPrice === null ? '' : appPrice}" data-artwork="${escapeHtml(artworkUrl)}" data-appname="${escapeHtml(name)}">📋 Versions</button>
         </div>
       `;
       searchResults.appendChild(card);
@@ -952,6 +1195,8 @@
           
           selectedAppArtworkUrl = artUrl;
           selectedAppName = appName;
+          selectedAppId = Number(btn.dataset.appid) || null;
+          selectedAppPrice = btn.dataset.appprice === '' ? null : Number(btn.dataset.appprice);
 
           // Check if this app version is already in the download queue
           const isDuplicate = downloadQueue.some(t => 
@@ -972,6 +1217,8 @@
           const newTask = {
             id: taskId,
             bundleId: bundle,
+            appId: selectedAppId,
+            appPrice: selectedAppPrice,
             versionId: null,
             appName: appName,
             appIcon: artUrl || 'icon.ico',
@@ -1020,6 +1267,8 @@
           const appName = btn.dataset.appname || '';
           selectedAppArtworkUrl = artUrl;
           selectedAppName = appName;
+          selectedAppId = Number(btn.dataset.appid) || null;
+          selectedAppPrice = btn.dataset.appprice === '' ? null : Number(btn.dataset.appprice);
 
           showPage('versions');
           $('#input-ver-bundle').value = bundle;
@@ -1113,6 +1362,8 @@
       const params = {
         taskId: task.id,
         bundleId: task.bundleId,
+        appId: task.appId || null,
+        appPrice: task.appPrice,
         purchase: task.purchase,
         outputDir: task.outputDir
       };
@@ -1580,6 +1831,8 @@
     const newTask = {
       id: taskId,
       bundleId,
+      appId: selectedAppId,
+      appPrice: selectedAppPrice,
       versionId: versionId || null,
       appName,
       appIcon,
@@ -1600,6 +1853,8 @@
     $('#input-dl-ver').value = '';
     selectedAppName = '';
     selectedAppArtworkUrl = '';
+    selectedAppId = null;
+    selectedAppPrice = null;
     updateFormAppIcon();
 
     // Refresh UI
@@ -1614,6 +1869,8 @@
   $('#input-dl-bundle').addEventListener('input', () => {
     selectedAppArtworkUrl = '';
     selectedAppName = '';
+    selectedAppId = null;
+    selectedAppPrice = null;
     updateFormAppIcon();
     updateDownloadButtonText();
   });
@@ -1789,6 +2046,8 @@
         const newTask = {
           id: taskId,
           bundleId,
+          appId: selectedAppId,
+          appPrice: selectedAppPrice,
           versionId: versionId || null,
           appName,
           appIcon,
@@ -1959,6 +2218,9 @@
           $('#input-dl-output').value = settings.outputDir; // pre-fill download page too
         }
         $('#input-set-country').value = settings.country || '';
+        const languageSelect = $('#select-set-language');
+        if (languageSelect) languageSelect.value = settings.language || 'auto';
+        applyLanguage(settings.language || 'auto');
         if (settings.concurrentDownloads) {
           $('#select-set-concurrent').value = String(settings.concurrentDownloads);
           concurrentDownloadsLimit = parseInt(settings.concurrentDownloads, 10);
@@ -1980,6 +2242,10 @@
     });
   }
 
+  $('#select-set-language').addEventListener('change', (event) => {
+    applyLanguage(event.target.value);
+  });
+
   $('#btn-set-browse').addEventListener('click', async () => {
     const result = await api.selectDirectory();
     if (result && result.path) {
@@ -1994,9 +2260,11 @@
       const settings = {
         outputDir: $('#input-set-output').value.trim(),
         country: $('#input-set-country').value.trim().toUpperCase(),
+        language: $('#select-set-language').value || 'auto',
         concurrentDownloads: parseInt($('#select-set-concurrent').value, 10),
       };
       await api.saveSettings(settings);
+      applyLanguage(settings.language);
       concurrentDownloadsLimit = settings.concurrentDownloads;
       showToast('Settings saved!', 'success');
       // Sync download page
@@ -2329,6 +2597,7 @@
   /* ═══════════════════════════════════════════
      INIT
      ═══════════════════════════════════════════ */
+  applyLanguage('auto');
   initTheme();
   initApp();
 })();

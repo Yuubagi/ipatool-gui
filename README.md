@@ -2,7 +2,7 @@
 
 A premium, modern desktop interface wrapper for the official [majd/ipatool](https://github.com/majd/ipatool) CLI, built with Electron, HTML5, and Vanilla CSS. It provides an elegant, fast, and feature-rich way to search, analyze, and download iOS `.ipa` files directly from the App Store.
 
-The GUI checks and downloads the CLI from the official `majd/ipatool` releases. GUI application updates are checked independently from this `Yuubagi/ipatool-gui` repository.
+The GUI checks and downloads the CLI from the official `majd/ipatool` releases. GUI application updates are checked independently from this `Yuubagi/ipatool-gui` repository. The interface supports English and Japanese with automatic system-language detection. Search result App Store IDs are passed to ipatool's `--app-id` option to avoid redundant bundle-ID lookups.
 
 ---
 

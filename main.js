@@ -213,6 +213,7 @@ function getDefaultSettings() {
     outputDir: app.getPath('downloads'),
     country: '',
     concurrentDownloads: 1,
+    language: 'auto',
   };
 }
 
@@ -319,37 +320,24 @@ function getBundledPath() {
 
 function getLocalIpatoolVersion() {
   return new Promise((resolve) => {
-    try {
-      const settings = loadSettings();
-      if (settings && settings.installedCliVersion) {
-        resolve('v' + settings.installedCliVersion.replace('v', '').trim());
-        return;
-      }
-    } catch (_) {}
-
     const targetPath = getBundledPath();
     if (!fs.existsSync(targetPath)) {
       resolve('Not Installed');
       return;
     }
-    execFile(targetPath, ['--version'], { windowsHide: true, timeout: 5000 }, (error, stdout) => {
+    execFile(targetPath, ['--version'], { windowsHide: true, timeout: 10000 }, (error, stdout, stderr) => {
       if (error) {
         resolve('Unknown');
         return;
       }
-      const match = stdout.match(/version\s+([^\s\r\n]+)/);
-      if (match && match[1]) {
-        let ver = match[1].trim().replace(/^v/i, '');
-        if (ver.toLowerCase() === 'dev' || ver.toLowerCase() === 'vdev') {
-          ver = 'dev';
-        }
-        resolve('v' + ver);
-      } else {
-        resolve('Unknown');
-      }
+      const output = ((stdout || '') + '\n' + (stderr || '')).trim();
+      const match = output.match(/\bversion\s+([^\s\r\n]+)/i) ||
+        output.match(/^\s*v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\s*$/i);
+      resolve(match && match[1] ? 'v' + match[1].trim().replace(/^v/i, '') : 'Unknown');
     });
   });
 }
+
 
 // Official majd/ipatool release downloader (Yuubagi patch)
 function getGitHubJson(apiPath) {
@@ -617,6 +605,12 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const os = require('os');
 let ipatoolQueue = Promise.resolve();
 
+function redactCliOutput(value) {
+  return String(value || '')
+    .replace(/("(?:set-cookie|cookie|x-token|authorization|passwordtoken|directoryservicesid|icloud-dsid|x-dsid)"\s*:\s*)("[^"]*"|[^,}\s]+)/gi, '$1"[REDACTED]"')
+    .replace(/\b(Set-Cookie|Cookie|X-Token|Authorization|PasswordToken|DirectoryServicesID|iCloud-DSID|X-Dsid)\s*[:=]\s*([^,\r\n]+)/gi, '$1=[REDACTED]');
+}
+
 /**
  * Direct execution of ipatool command.
  */
@@ -633,17 +627,17 @@ function runIpatoolDirect(args, options = {}) {
     execFile(binaryPath, fullArgs, { timeout, windowsHide: true }, (err, stdout, stderr) => {
       if (err) {
         // If the process produced output before erroring, include it
-        const output = (stdout || '') + (stderr || '');
+        const output = redactCliOutput((stdout || '') + (stderr || ''));
         resolve({
           success: false,
-          output: output || err.message,
-          error: err.message,
+          output: output || redactCliOutput(err.message),
+          error: redactCliOutput(err.message),
         });
         return;
       }
       resolve({
         success: true,
-        output: (stdout || '').trim(),
+        output: redactCliOutput((stdout || '').trim()),
       });
     });
   });
@@ -712,17 +706,17 @@ function runIpatoolIsolated(args, options = {}) {
       } catch (_) {}
 
       if (err) {
-        const output = (stdout || '') + (stderr || '');
+        const output = redactCliOutput((stdout || '') + (stderr || ''));
         resolve({
           success: false,
-          output: output || err.message,
-          error: err.message,
+          output: output || redactCliOutput(err.message),
+          error: redactCliOutput(err.message),
         });
         return;
       }
       resolve({
         success: true,
-        output: (stdout || '').trim(),
+        output: redactCliOutput((stdout || '').trim()),
       });
     });
 
@@ -949,93 +943,110 @@ function auth2FA(code) {
 const activeDownloadProcesses = new Map();
 let purchaseLock = Promise.resolve();
 
-function serializedPurchase(bundleId) {
+function serializedPurchase(bundleId, appId, appPrice) {
   return new Promise((resolve) => {
     purchaseLock = purchaseLock.then(async () => {
       try {
-        const result = await runIpatool(['purchase', '--bundle-identifier', bundleId]);
-        resolve(result);
+        if (Number.isFinite(appPrice) && appPrice > 0) {
+          resolve({ success: true, skipped: true, output: 'Paid app detected; automatic license acquisition skipped.' });
+          return;
+        }
+        const args = ['purchase'];
+        if (appId && Number.isSafeInteger(Number(appId)) && Number(appId) > 0 && appPrice === 0) {
+          args.push('--app-id', String(Number(appId)));
+        } else {
+          args.push('--bundle-identifier', bundleId);
+        }
+        args.push('--platform', 'iphone');
+        resolve(await runIpatool(args));
       } catch (err) {
-        resolve({ success: false, error: err.message });
+        resolve({ success: false, output: '', error: err.message });
       }
-    });
+    }).catch((err) => resolve({ success: false, output: '', error: err.message }));
   });
 }
 
-function downloadIpa(taskId, bundleId, outputDir, purchaseFlag, versionId) {
+function downloadIpa(taskId, bundleId, appId, appPrice, outputDir, purchaseFlag, versionId) {
   return new Promise(async (resolve) => {
-    // 1. If purchase flag is enabled, run it in a serialized queue first to avoid session conflicts
     if (purchaseFlag) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('command-output', { taskId, line: 'Checking/Acquiring application license (serialized purchase)...' });
       }
-      const purchaseResult = await serializedPurchase(bundleId);
+      const purchaseResult = await serializedPurchase(bundleId, appId, appPrice);
       if (purchaseResult && !purchaseResult.success) {
-        const errStr = purchaseResult.error || '';
-        // If it failed because it's already purchased, that's fine. Log it but continue.
+        const details = [purchaseResult.output, purchaseResult.error].filter(Boolean).join('\n').trim();
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('command-output', { taskId, line: `Note: License check/acquisition returned: ${errStr || 'Already licensed or skipped'}` });
+          mainWindow.webContents.send('command-output', {
+            taskId,
+            line: '❌ License acquisition failed. Download was stopped; see the ipatool response below.',
+          });
+          if (details) {
+            details.split(/\r?\n/).filter(Boolean).forEach((line) => {
+              mainWindow.webContents.send('command-output', { taskId, line: redactCliOutput(line) });
+            });
+          }
         }
-      } else {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('command-output', { taskId, line: '✅ License acquired or verified successfully.' });
-        }
+        return resolve({
+          success: false,
+          output: redactCliOutput(details),
+          error: 'License acquisition failed. See the ipatool response above.',
+        });
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const message = purchaseResult && purchaseResult.skipped
+          ? 'ℹ️ Paid app detected; automatic purchase was skipped.'
+          : '✅ License acquired or verified successfully.';
+        mainWindow.webContents.send('command-output', { taskId, line: message });
       }
     }
 
-    // 2. Create a completely isolated temporary directory for this download task
-    const taskTempDir = path.join(outputDir, `.tmp-ipatool-${taskId}`);
+    const taskTempDir = path.join(outputDir, '.tmp-ipatool-' + taskId);
     try {
-      if (!fs.existsSync(taskTempDir)) {
-        fs.mkdirSync(taskTempDir, { recursive: true });
-      }
+      if (!fs.existsSync(taskTempDir)) fs.mkdirSync(taskTempDir, { recursive: true });
     } catch (err) {
       return resolve({
         success: false,
         output: '',
-        error: `Failed to create isolated temp workspace: ${err.message}`,
+        error: 'Failed to create isolated temp workspace: ' + err.message,
       });
     }
 
-    const args = [
-      'download',
-      '--bundle-identifier', bundleId,
-      '--output', taskTempDir, // Download into the isolated directory
+    const args = ['download'];
+    if (appId && Number.isSafeInteger(Number(appId)) && Number(appId) > 0) {
+      args.push('--app-id', String(Number(appId)));
+    } else {
+      args.push('--bundle-identifier', bundleId);
+    }
+    args.push(
+      '--platform', 'iphone',
+      '--output', taskTempDir,
       '--format', 'json',
       '--non-interactive',
-      '--keychain-passphrase', KEYCHAIN_PASSPHRASE,
-    ];
-
-    if (versionId) {
-      args.push('--external-version-id', String(versionId));
-    }
+      '--keychain-passphrase', KEYCHAIN_PASSPHRASE
+    );
+    if (versionId) args.push('--external-version-id', String(versionId));
 
     const proc = spawn(binaryPath, args, { windowsHide: true });
     activeDownloadProcesses.set(taskId, proc);
-
     let stdout = '';
     let stderr = '';
 
     const timeout = setTimeout(() => {
       proc.kill();
       try {
-        if (fs.existsSync(taskTempDir)) {
-          fs.rmSync(taskTempDir, { recursive: true, force: true });
-        }
+        if (fs.existsSync(taskTempDir)) fs.rmSync(taskTempDir, { recursive: true, force: true });
       } catch (_) {}
       resolve({
         success: false,
-        output: stdout + stderr,
+        output: redactCliOutput(stdout + stderr),
         error: 'Download timed out after 5 minutes',
       });
     }, DOWNLOAD_TIMEOUT);
 
     proc.stdout.on('data', (data) => {
-      const text = data.toString();
+      const text = redactCliOutput(data.toString());
       stdout += text;
-
-      // Stream each line to the renderer with the taskId
-      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
       for (const line of lines) {
         if (line.startsWith('{"type":"progress"') || line.startsWith('{"type": "progress"')) {
           try {
@@ -1043,91 +1054,72 @@ function downloadIpa(taskId, bundleId, outputDir, purchaseFlag, versionId) {
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('download-progress', { taskId, percentage: progressData.percentage });
             }
-          } catch (e) {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('command-output', { taskId, line });
-            }
+          } catch (_) {
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('command-output', { taskId, line });
           }
-        } else {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('command-output', { taskId, line });
-          }
+        } else if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('command-output', { taskId, line });
         }
       }
     });
 
     proc.stderr.on('data', (data) => {
-      const text = data.toString();
+      const text = redactCliOutput(data.toString());
       stderr += text;
-
-      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
       for (const line of lines) {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('command-output', { taskId, line });
-        }
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('command-output', { taskId, line });
       }
     });
 
     proc.on('close', (code) => {
       clearTimeout(timeout);
       activeDownloadProcesses.delete(taskId);
-
       if (code === 0) {
-        // Success: Find the .ipa file in the isolated workspace and move it to the parent outputDir
         try {
           const files = fs.readdirSync(taskTempDir);
-          const ipaFile = files.find((f) => f.toLowerCase().endsWith('.ipa'));
-
+          const ipaFile = files.find((file) => file.toLowerCase().endsWith('.ipa'));
           if (ipaFile) {
             const srcPath = path.join(taskTempDir, ipaFile);
-            const destPath = path.join(outputDir, ipaFile);
-
-            // Move file (overwrite if exists)
-            if (fs.existsSync(destPath)) {
-              fs.unlinkSync(destPath);
-            }
+            // The CLI uses numeric ID in the file name if --app-id was used.
+            const finalFileName = appId
+              ? ipaFile.replace(new RegExp('^' + String(Number(appId)) + '(?=_)'), bundleId)
+              : ipaFile;
+            const destPath = path.join(outputDir, finalFileName);
+            if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
             fs.renameSync(srcPath, destPath);
-
-            // Delete isolated temp directory
             fs.rmSync(taskTempDir, { recursive: true, force: true });
-
             resolve({
               success: true,
               output: JSON.stringify({ success: true, path: destPath }),
               error: undefined,
             });
           } else {
-            // No ipa file found inside the folder
             fs.rmSync(taskTempDir, { recursive: true, force: true });
             resolve({
               success: false,
-              output: (stdout + stderr).trim(),
-              error: 'Download succeeded but could not locate the compiled .ipa package in workspace',
+              output: redactCliOutput((stdout + stderr).trim()),
+              error: 'Download succeeded but could not locate the .ipa package in workspace',
             });
           }
         } catch (err) {
           try {
-            if (fs.existsSync(taskTempDir)) {
-              fs.rmSync(taskTempDir, { recursive: true, force: true });
-            }
+            if (fs.existsSync(taskTempDir)) fs.rmSync(taskTempDir, { recursive: true, force: true });
           } catch (_) {}
           resolve({
             success: false,
-            output: (stdout + stderr).trim(),
-            error: `Failed to finalize downloaded package: ${err.message}`,
+            output: redactCliOutput((stdout + stderr).trim()),
+            error: 'Failed to finalize downloaded package: ' + err.message,
           });
         }
       } else {
-        // Process failed: Clean up the isolated directory
         try {
-          if (fs.existsSync(taskTempDir)) {
-            fs.rmSync(taskTempDir, { recursive: true, force: true });
-          }
+          if (fs.existsSync(taskTempDir)) fs.rmSync(taskTempDir, { recursive: true, force: true });
         } catch (_) {}
         resolve({
           success: false,
-          output: (stdout + stderr).trim(),
-          error: `Process exited with code ${code}`,
+          output: redactCliOutput((stdout + stderr).trim()),
+          error: 'Process exited with code ' + code,
         });
       }
     });
@@ -1136,14 +1128,12 @@ function downloadIpa(taskId, bundleId, outputDir, purchaseFlag, versionId) {
       clearTimeout(timeout);
       activeDownloadProcesses.delete(taskId);
       try {
-        if (fs.existsSync(taskTempDir)) {
-          fs.rmSync(taskTempDir, { recursive: true, force: true });
-        }
+        if (fs.existsSync(taskTempDir)) fs.rmSync(taskTempDir, { recursive: true, force: true });
       } catch (_) {}
       resolve({
         success: false,
-        output: stdout + stderr,
-        error: err.message,
+        output: redactCliOutput(stdout + stderr),
+        error: redactCliOutput(err.message),
       });
     });
   });
@@ -1355,18 +1345,22 @@ ipcMain.handle('search', async (_event, { query, limit, country }) => {
 });
 
 // Purchase
-ipcMain.handle('purchase', async (_event, { bundleId }) => {
+ipcMain.handle('purchase', async (_event, { bundleId, appId, appPrice }) => {
   try {
-    return await runIpatool(['purchase', '--bundle-identifier', bundleId]);
+    const args = ['purchase'];
+    if (appId && Number.isSafeInteger(Number(appId)) && Number(appId) > 0 && appPrice === 0) args.push('--app-id', String(Number(appId)));
+    else args.push('--bundle-identifier', bundleId);
+    args.push('--platform', 'iphone');
+    return await runIpatool(args);
   } catch (err) {
     return { success: false, output: '', error: err.message };
   }
 });
 
 // Download IPA
-ipcMain.handle('download-ipa', async (_event, { taskId, bundleId, outputDir, purchase, versionId }) => {
+ipcMain.handle('download-ipa', async (_event, { taskId, bundleId, appId, appPrice, outputDir, purchase, versionId }) => {
   try {
-    return await downloadIpa(taskId, bundleId, outputDir, purchase, versionId);
+    return await downloadIpa(taskId, bundleId, appId, appPrice, outputDir, purchase, versionId);
   } catch (err) {
     return { success: false, output: '', error: err.message };
   }
